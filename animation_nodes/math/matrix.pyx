@@ -1,4 +1,7 @@
 from libc.math cimport sin, cos, sqrt
+from . rotation_conversion cimport matrixToQuaternion, quaternionToMatrix
+from . quaternion cimport quaternionSlerp
+from . vector cimport mixVec3
 
 cdef void transformVec3AsPoint_InPlace(Vector3* v, Matrix4* m):
     cdef float newX, newY, newZ
@@ -191,7 +194,6 @@ cdef void setComposedMatrix(Matrix4* m, Vector3* t, Euler3* e, Vector3* s):
     setRotationScaleMatrix(m, e, s)
     m.a14, m.a24, m.a34 = t.x, t.y, t.z
 
-
 cdef void multMatrix4(Matrix4* target, Matrix4* x, Matrix4* y):
     target.a11 = x.a11 * y.a11  +  x.a12 * y.a21  +  x.a13 * y.a31  +  x.a14 * y.a41
     target.a12 = x.a11 * y.a12  +  x.a12 * y.a22  +  x.a13 * y.a32  +  x.a14 * y.a42
@@ -323,3 +325,45 @@ cdef void matrixFromNormalizedAxisData(Matrix4 *m, Vector3 *center, Vector3 *tan
     m.a21, m.a22, m.a23, m.a24 = tangent.y, bitangent.y, normal.y, center.y
     m.a31, m.a32, m.a33, m.a34 = tangent.z, bitangent.z, normal.z, center.z
     m.a41, m.a42, m.a43, m.a44 = 0, 0, 0, 1
+
+cdef void setRotationWXYZScaleMatrix(Matrix3_or_Matrix4* m, Quaternion *q, Vector3* s):
+    cdef Matrix3 rotation, scale, rotationScale
+    setScaleMatrix(&scale, s)
+    quaternionToMatrix(&rotation, q)
+
+    if Matrix3_or_Matrix4 is Matrix3:
+        multMatrix3(m, &rotation, &scale)
+    else:
+        multMatrix3(&rotationScale, &rotation, &scale)
+        convertMatrix3ToMatrix4(m, &rotationScale)
+
+cdef void setTranslationRotationWXYZScaleMatrix(Matrix4 *m, Vector3 *t, Quaternion *q, Vector3 *s):
+    setRotationWXYZScaleMatrix(m, q, s)
+    m.a14, m.a24, m.a34 = t.x, t.y, t.z
+
+cdef void translationScaleFromMatrix(Vector3 *translation, Vector3 *scale, Matrix4 *m):
+    translation.x, translation.y, translation.z = m.a14, m.a24, m.a34
+    scale.x = <float>sqrt(m.a11 * m.a11 + m.a21 * m.a21 + m.a31 * m.a31)
+    scale.y = <float>sqrt(m.a12 * m.a12 + m.a22 * m.a22 + m.a32 * m.a32)
+    scale.z = <float>sqrt(m.a13 * m.a13 + m.a23 * m.a23 + m.a33 * m.a33)
+    if getMatrix3x3PartDeterminant(m) < 0.0:
+        scale.x *= -1.0
+        scale.y *= -1.0
+        scale.z *= -1.0
+
+cdef void mixMatrix4(Matrix4* target, Matrix4* a, Matrix4* b, float factor):
+    cdef Vector3 tA, tB, t
+    cdef Vector3 sA, sB, s
+    cdef Quaternion qA, qB, q
+
+    translationScaleFromMatrix(&tA, &sA, a)
+    translationScaleFromMatrix(&tB, &sB, b)
+
+    matrixToQuaternion(&qA, a)
+    matrixToQuaternion(&qB, b)
+
+    mixVec3(&t, &tA, &tB, factor)
+    quaternionSlerp(&q, &qA, &qB, factor)
+    mixVec3(&s, &sA, &sB, factor)
+
+    setTranslationRotationWXYZScaleMatrix(target, &t, &q, &s)

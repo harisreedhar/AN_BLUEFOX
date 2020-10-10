@@ -1,7 +1,7 @@
 cimport cython
 from . number cimport lerpFloat
 from . vector cimport crossVec3, scaleVec3_Inplace, scaleVec3, lengthVec3, angleVec3, projectOnCenterPlaneVec3, normalizeVec3, dotVec3, subVec3
-from libc.math cimport cos, sin, sqrt
+from libc.math cimport cos, sin, acos, sqrt, abs, fabs
 
 cdef void setUnitQuaternion(Quaternion *q):
     q.x, q.y, q.z, q.w = 0, 0, 0, 1
@@ -63,3 +63,37 @@ cdef void mixQuat(Quaternion* target, Quaternion* x, Quaternion* y, float factor
     target.x = lerpFloat(x.x, y.x, factor)
     target.y = lerpFloat(x.y, y.y, factor)
     target.z = lerpFloat(x.z, y.z, factor)
+
+# https://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/slerp/index.htm
+cdef void quaternionSlerp(Quaternion* target, Quaternion* x, Quaternion* y, float factor):
+    cdef float halfTheta, sinHalfTheta, ratioX, ratioY
+    cdef float dot = x.x * y.x + x.y * y.y + x.z * y.z + x.w * y.w
+    
+    if dot < 0:
+        y.w *= -1
+        y.x *= -1
+        y.y *= -1
+        y.z *= -1
+
+    if abs(dot) >= 1.0:
+        target.w = x.w
+        target.x = x.x
+        target.y = x.y
+        target.z = x.z
+    else:
+        halfTheta = acos(dot)
+        sinHalfTheta = sqrt(1.0 - dot * dot)
+
+        if fabs(sinHalfTheta) < 0.001:
+            target.w = (x.w + y.w) * 0.5
+            target.x = (x.x + y.x) * 0.5
+            target.y = (x.y + y.y) * 0.5
+            target.z = (x.z + y.z) * 0.5
+        else:
+            ratioX = sin((1 - factor) * halfTheta) / sinHalfTheta
+            ratioY = sin(factor * halfTheta) / sinHalfTheta
+
+            target.w = x.w * ratioX + y.w * ratioY
+            target.x = x.x * ratioX + y.x * ratioY
+            target.y = x.y * ratioX + y.y * ratioY
+            target.z = x.z * ratioX + y.z * ratioY
