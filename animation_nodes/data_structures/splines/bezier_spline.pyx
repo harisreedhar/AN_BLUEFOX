@@ -23,7 +23,8 @@ cdef class BezierSpline(Spline):
                         Vector3DList rightHandles = None,
                         FloatList radii = None,
                         FloatList tilts = None,
-                        bint cyclic = False):
+                        bint cyclic = False,
+                        long materialIndex = 0):
         if points is None: points = Vector3DList()
         if leftHandles is None: leftHandles = points.copy()
         if rightHandles is None: rightHandles = points.copy()
@@ -39,6 +40,7 @@ cdef class BezierSpline(Spline):
         self.radii = radii
         self.tilts = tilts
         self.cyclic = cyclic
+        self.materialIndex = materialIndex
         self.type = "BEZIER"
         self.markChanged()
 
@@ -47,7 +49,8 @@ cdef class BezierSpline(Spline):
         f"""AN Spline Object:
         Points: {self.points.length}
         Type: {self.type}
-        Cyclic: {self.cyclic}""")
+        Cyclic: {self.cyclic}
+        Material Index: {self.materialIndex}""")
 
     cpdef void markChanged(self):
         Spline.markChanged(self)
@@ -70,7 +73,8 @@ cdef class BezierSpline(Spline):
                             self.rightHandles.copy(),
                             self.radii.copy(),
                             self.tilts.copy(),
-                            self.cyclic)
+                            self.cyclic,
+                            self.materialIndex)
 
     def transform(self, matrix):
         self.points.transform(matrix)
@@ -311,7 +315,7 @@ cdef class BezierSpline(Spline):
         _newTilts[0] = _oldTilts[startIndices[0]] * (1 - startT) + _oldTilts[startIndices[1]] * startT
         _newTilts[newPointAmount - 1] = _oldTilts[endIndices[0]] * (1 - endT) + _oldTilts[endIndices[1]] * endT
 
-        return BezierSpline(newPoints, newLeftHandles, newRightHandles, newRadii, newTilts)
+        return BezierSpline(newPoints, newLeftHandles, newRightHandles, newRadii, newTilts, False, self.materialIndex)
 
     def improveStraightBezierSegments(self):
         cdef Py_ssize_t i
@@ -321,25 +325,6 @@ cdef class BezierSpline(Spline):
             if isCloseVec3(w[0], w[1]) and isCloseVec3(w[2], w[3]):
                 mixVec3(w[1], w[0], w[3], 1.0 / 3.0)
                 mixVec3(w[2], w[0], w[3], 2.0 / 3.0)
-
-    @cython.cdivision(True)
-    def getAdaptiveParameters(self, float stepMultiplier, float maxStep):
-        cdef FloatList parameters = FloatList()
-        cdef int amount = getSegmentAmount(self)
-        cdef float step = 1.0 / amount
-        cdef float parameter, radius
-        cdef Vector3* w[4]
-        cdef Py_ssize_t i
-        for i in range(amount):
-            parameter = 0.0
-            getSegmentData_Index(self, i, w)
-            while parameter < 1.0:
-                parameters.append_LowLevel(step * (parameter + i))
-                radius = 1.0 / max(evaluateBezierSegment_Curvature(parameter, w), 1e-5)
-                parameter += min(radius * stepMultiplier, maxStep)
-        parameters.append_LowLevel(1)
-        return parameters
-
 
 cdef smoothPoint(BezierSpline spline, Py_ssize_t index, float strength):
     if 0 < index < spline.points.length - 1:
